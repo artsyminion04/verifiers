@@ -9,11 +9,6 @@ ENDPOINTS = {
         "url": "https://openrouter.ai/api/v1",
         "key": "OPENROUTER_API_KEY",
     },
-    "my-model": {
-        "model": "my-model",
-        "url": "https://some-endpoint.com/v1",
-        "key": "SOME_API_KEY",
-    },
     "gpt-4.1-mini": {
         "model": "gpt-4.1-mini",
         "url": "https://api.openai.com/v1",
@@ -43,6 +38,21 @@ ENDPOINTS = {
         "model": "deepseek-reasoner",
         "url": "https://api.deepseek.com/v1",
         "key": "DEEPSEEK_API_KEY",
+    },
+    "qwen3-1.7b": {
+        "model": "Qwen/Qwen3-1.7B",
+        "url": "http://0.0.0.0:8080/v1",
+        "key": "EMPTY",
+    },
+    "qwen3-4b": {
+        "model": "Qwen/Qwen3-4B",
+        "url": "http://0.0.0.0:8001/v1",
+        "key": "EMPTY",
+    },
+    "qwen3-appworld-sft": {
+        "model": "artsyminion04/Qwen3-4B-Appworld-SFT-432",
+        "url": "http://0.0.0.0:8080/v1",
+        "key": "EMPTY",
     },
     "qwen3-a22b-instruct": {
         "model": "Qwen/Qwen3-235B-A22B-Instruct-2507",

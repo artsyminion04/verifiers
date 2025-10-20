@@ -81,7 +81,7 @@ class MultiTurnEnv(Environment):
             },
         }
         start_time = time.time()
-        state = await maybe_await(self.setup_state, state, **kwargs)
+        state = await maybe_await(self.setup_state, state, **kwargs) #,prompt
         if self.message_type == "chat":
             assert isinstance(prompt, list)
             completion = []
@@ -89,6 +89,7 @@ class MultiTurnEnv(Environment):
             assert isinstance(prompt, str)
             completion = ""
             state["responses_start_idx"] = []
+        prompt = state["prompt"]
         rollout = list(prompt) if not isinstance(prompt, str) else prompt
         while not is_completed:
             if await maybe_await(self.is_completed, rollout, state, **kwargs):
