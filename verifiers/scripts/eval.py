@@ -5,8 +5,17 @@ import logging
 from typing import Dict
 
 from verifiers import setup_logging
+<<<<<<< HEAD
 from verifiers.types import ClientConfig, EvalConfig
 from verifiers.utils.eval_utils import load_endpoints, run_evaluation
+=======
+from verifiers.types import Endpoints
+from verifiers.utils.client_utils import setup_client
+from verifiers.utils.message_utils import messages_to_printable, sanitize_tool_calls
+import subprocess
+import requests
+import signal
+>>>>>>> 1419674 (add option to start vllm server as part of eval.py program)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +52,11 @@ def main():
         type=str,
         default="gpt-4.1-mini",
         help="Name of model to evaluate",
+    )
+    parser.add_argument(
+        "--model_tag",
+        "-mt",
+        type=str,
     )
     parser.add_argument(
         "--api-key-var",
@@ -163,6 +177,9 @@ def main():
         default="",
         help="Name of dataset to save to Hugging Face Hub",
     )
+    parser.add_argument(
+        "--local-serve", "-ls", default=False,
+    )
     args = parser.parse_args()
 
     setup_logging("DEBUG" if args.verbose else "INFO")
@@ -209,7 +226,14 @@ def main():
         extra_headers=merged_headers,
     )
 
-    # run evaluation
+    # Add code to locally serve the model first
+    if args.local_serve:
+        proc = launch_vllm_server(args.model, port=8001)
+        try:
+            wait_for_server_ready()
+        except:
+            exit()
+
     eval_config = EvalConfig(
         # environment
         env_id=args.env_id,
@@ -237,6 +261,37 @@ def main():
     )
     logger.debug(f"Evaluation config: {eval_config.model_dump_json(indent=2)}")
     asyncio.run(run_evaluation(eval_config))
+
+    if args.local_serve:
+        proc.send_signal(signal.SIGINT)
+        proc.wait()
+
+def launch_vllm_server(model_name: str, port: int = 8001) -> subprocess.Popen:
+    cmd = [
+        "vllm", "serve", model_name,
+        "--port", str(port),
+        "--enable-auto-tool-choice",
+        "--tool-call-parser", "hermes"
+    ]
+    print(f"[Launching] {' '.join(cmd)}")
+    log_file = open("vllm_server.log", "w")
+    proc = subprocess.Popen(cmd,stdout=log_file)
+    return proc
+
+def wait_for_server_ready(host: str = "0.0.0.0", port: int = 8001, timeout: int = 180):
+    url = f"http://{host}:{port}/health"
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            r = requests.get(url)
+            if r.status_code == 200:
+                print("[Ready] vLLM server is up!")
+                return
+        except:
+            pass
+        print(".", end="", flush=True)
+        time.sleep(2)
+    raise TimeoutError("Timed out waiting for vLLM to start.")
 
 
 if __name__ == "__main__":
