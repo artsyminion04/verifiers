@@ -17,6 +17,9 @@ from verifiers import setup_logging
 from verifiers.types import Endpoints
 from verifiers.utils.client_utils import setup_client
 from verifiers.utils.message_utils import messages_to_printable, sanitize_tool_calls
+import subprocess
+import requests
+import signal
 
 # Setup logger for eval script using verifiers logging format
 logger = logging.getLogger("verifiers.scripts.eval")
@@ -253,6 +256,11 @@ def main():
         help="Name of model to evaluate",
     )
     parser.add_argument(
+        "--model_tag",
+        "-mt",
+        type=str,
+    )
+    parser.add_argument(
         "--api-key-var",
         "-k",
         type=str,
@@ -337,6 +345,9 @@ def main():
         default="",
         help="Name of dataset to save to Hugging Face Hub",
     )
+    parser.add_argument(
+        "--local-serve", "-ls", default=False,
+    )
     args = parser.parse_args()
 
     # Build headers from repeated --header flags
@@ -350,12 +361,20 @@ def main():
             raise ValueError("--header name cannot be empty")
         merged_headers[k] = v
 
+    # Add code to locally serve the model first
+    if args.local_serve:
+        proc = launch_vllm_server(args.model, port=8001)
+        try:
+            wait_for_server_ready()
+        except:
+            exit()
+
     eval_environment(
         env=args.env,
         env_args=args.env_args,
         env_dir_path=args.env_dir_path,
         endpoints_path=args.endpoints_path,
-        model=args.model,
+        model=args.model_tag,
         api_key_var=args.api_key_var,
         api_base_url=args.api_base_url,
         num_examples=args.num_examples,
@@ -370,6 +389,37 @@ def main():
         hf_hub_dataset_name=args.hf_hub_dataset_name,
         extra_headers=merged_headers,
     )
+
+    if args.local_serve:
+        proc.send_signal(signal.SIGINT)
+        proc.wait()
+
+def launch_vllm_server(model_name: str, port: int = 8001) -> subprocess.Popen:
+    cmd = [
+        "vllm", "serve", model_name,
+        "--port", str(port),
+        "--enable-auto-tool-choice",
+        "--tool-call-parser", "hermes"
+    ]
+    print(f"[Launching] {' '.join(cmd)}")
+    log_file = open("vllm_server.log", "w")
+    proc = subprocess.Popen(cmd,stdout=log_file)
+    return proc
+
+def wait_for_server_ready(host: str = "0.0.0.0", port: int = 8001, timeout: int = 180):
+    url = f"http://{host}:{port}/health"
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            r = requests.get(url)
+            if r.status_code == 200:
+                print("[Ready] vLLM server is up!")
+                return
+        except:
+            pass
+        print(".", end="", flush=True)
+        time.sleep(2)
+    raise TimeoutError("Timed out waiting for vLLM to start.")
 
 
 if __name__ == "__main__":
