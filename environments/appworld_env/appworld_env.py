@@ -22,11 +22,11 @@ My name is: {{ supervisor.first_name }} {{ supervisor.last_name }}. My personal 
 
 You will be given a task instruction and a list of functions in the standard format. The functions correspond to APIs from various apps you have access to. The function name has two parts, the app name and API name separated by "__", e.g., spotify__login is the login API for the Spotify app.
 
-You will complete the task completely autonomously through multi-turn interaction with the execution environment. In each turn, you will make one or more function calls, and the environment will return its outputs. This will continue either until you call `complete_task` API from the Supervisor app, or until a maximum of {max_steps} turns are reached.
+You will complete the task completely autonomously through multi-turn interaction with the execution environment. In each turn, you will make one or more function calls, and the environment will return its outputs. This will continue either until you call `complete_task` API from the Supervisor app, or until a maximum of {{ max_steps }} turns are reached.
 
 Here are brief app-wise descriptions.
 
-{app_descriptions}
+{{ app_descriptions }}
 
 # Key Instructions:
 
@@ -38,7 +38,7 @@ A. General instructions:
 - Never leave placeholders; don't output things like "your_username". Always fill in the real value by retrieving it via APIs (e.g., Supervisor app for credentials).
 - When I omit details, choose any valid value. For example, if I ask you to buy something but don't specify which payment card to use, you may pick any one of my available cards.
 - Avoid collateral damage. Only perform what I explicitly ask for. Example: if I ask you to buy something, do not delete emails, return the order, or perform unrelated account operations.
-- You only have {max_steps} turns. Avoid unnecessary requests. You can batch unlimited function calls in a single turn - always group them to save steps.
+- You only have {{ max_steps }} turns. Avoid unnecessary requests. You can batch unlimited function calls in a single turn - always group them to save steps.
 
 B. App-specific instructions:
 
@@ -62,7 +62,9 @@ When the answer is given:
   E.g., for the song title of the current playing track, return just the title.
 - Numbers must be numeric and not in words.
   E.g., for the number of songs in the queue, return "10", not "ten".
+"""
 
+""" Removed from initial system prompt: 
 # Real Task Instruction
 {instruction}
 
@@ -85,9 +87,10 @@ from datasets import Dataset
 import os
 from verifiers.types import ChatCompletionMessageToolCall, Message, Messages, State
 from jinja2 import Template
+from appworld.common.utils import read_json
+
 
 # --- Environment: tool-only, multi-turn, long-horizon friendly --- #
-
 class AppWorldEnv(ToolEnv):
     """
     Verifiers MultiTurnEnv that enforces tool-only interactions for AppWorld.
@@ -101,11 +104,6 @@ class AppWorldEnv(ToolEnv):
                  max_plan_length_credit: int = 5,
                  **kwargs):
 
-        # self.dataset = train_dataset
-        # self.eval_dataset = eval_dataset
-        # self.rubric = self._make_rubric()
-        # self.system_prompt = SYSTEM_PROMPT
-
         super().__init__(
             tools=[], train_dataset=train_dataset, eval_dataset=eval_dataset, rubric=self._make_rubric(), max_turns=max_turns, system_prompt=SYSTEM_PROMPT, **kwargs
         )
@@ -114,7 +112,7 @@ class AppWorldEnv(ToolEnv):
         self.predict_tools = False
         self.raise_on_error = raise_on_error
         self.world = None
-        # super().__init__(dataset=train_dataset, eval_dataset=eval_dataset, rubric=rubric, system_prompt=SYSTEM_PROMPT, **kwargs)
+        self.demo_messages_file_path =  "/weka/oe-adapt-default/shaktis/general-tool-use/verifiers/environments/appworld_env/demos.json"
 
     async def setup_state(self, state: State, **kwargs: Any) -> State:
         task_id = state["task"]
@@ -129,7 +127,7 @@ class AppWorldEnv(ToolEnv):
             self.oai_tools = all_tools[:128]
             self.tools = [oai_tool["function"]["name"] for oai_tool in self.oai_tools]
         else:
-             # use ground truth apis
+            # use ground truth apis
             self.oai_tools = []
             self.tools = world.task.ground_truth.required_apis
             for doc in all_tools:
@@ -137,23 +135,17 @@ class AppWorldEnv(ToolEnv):
                 if func_name in self.tools:
                     self.oai_tools.append(doc)
 
-            # self.oai_tools  = [
-            #     doc
-            #     for doc in all_tools
-            #     if doc["function"]["name"] in self.tools
-            # ]
-
         state["info"]["tools"] = self.tools
         state["info"]["oai_tools"] = self.oai_tools
 
-        # TODO: fix prompt?
-        dictionary = {"supervisor": world.task.supervisor, "app_descriptions": world.task.app_descriptions, "max_steps": self.max_turns, "instruction": world.task.instruction}
-        prompt = Template(self.system_prompt.lstrip()).render(dictionary)
-
-        # self.oai_tools = self.oai_tools[:128]
-        # self.tools = [oai_tool["function"]["name"] for oai_tool in self.oai_tools]
-        # state["info"]["tools"] = self.tools
-        # state["info"]["oai_tools"] = self.oai_tools
+        dictionary = {"supervisor": world.task.supervisor, "app_descriptions": world.task.app_descriptions, "max_steps": self.max_turns}
+        if self.demo_messages_file_path is not None:
+            self.demo_messages = read_json(self.demo_messages_file_path.replace("/", os.sep))
+        self.demo_messages = str(self.demo_messages)
+        prompt = Template(self.system_prompt.lstrip() + self.demo_messages.lstrip()).render(dictionary)
+        
+        state["prompt"][0]["content"] = prompt
+        return state
         
         # lm_calls_log_file_path = os.path.join(self.world.output_logs_directory, "lm_calls.jsonl")
         # tools, _ = self.api_predictor.predict(
@@ -187,7 +179,6 @@ class AppWorldEnv(ToolEnv):
         #             "content": state["prompt"],
         #         }
         #     )
-        return state
     
     # Override tool env implementation. If an agent doesn't make a tool call remind them instead of ending rollout
     async def is_completed(self, messages: Messages, state: State, **kwargs) -> bool:
@@ -256,66 +247,34 @@ class AppWorldEnv(ToolEnv):
           - planning_reward: tiny credit when agent saves a multi-step plan to workflow_memory (encourages planning)
           - penalty: for tool execution errors
         """
-        def success_reward(state, **kwargs):
-            info = (state or {}).get("info", {}) or {}
-            last_eval = info.get("last_evaluation") or {}
-            if isinstance(last_eval, dict):
-                # typical keys to look for
-                for k in ("task_score", "score"):
-                    if k in last_eval:
-                        try:
-                            return float(last_eval[k])
-                        except Exception:
-                            pass
-                for k in ("is_success", "task_success", "success", "solved"):
-                    if k in last_eval:
-                        return 1.0 if bool(last_eval[k]) else 0.0
-            return 0.0
-
-        def progress_reward(state, **kwargs):
-            info = (state or {}).get("info", {}) or {}
-            hist = info.get("action_history", [])
-            if not hist:
-                return 0.0
-            last = hist[-1]
-            # small positive if last action produced an evaluation snapshot and no exec error
-            if last.get("result") is not None and info.get("last_evaluation") is not None:
-                return 0.03
-            return 0.0
-
-        def error_penalty(state, **kwargs):
-            info = (state or {}).get("info", {}) or {}
-            hist = info.get("action_history", [])
-            if not hist:
-                return 0.0
-            last = hist[-1]
-            return -0.1 if last.get("error") else 0.0
-
-        def turn_penalty(state):
-            info = (state or {}).get("info", {}) or {}
-            hist = info.get("action_history", [])
-            if not hist:
-                return 0.0
-            return len(hist) * 0.01
-
+        def success_reward(**kwargs):
+            return self.world.evaluate().pass_percentage
         return vf.Rubric(
-            funcs=[success_reward, progress_reward, error_penalty, turn_penalty],
-            weights=[1.0, 0.2, 0.2, 0.2]
+            funcs=[success_reward],
+            weights=[1.0]
         )
+    
+    # info = (state or {}).get("info", {}) or {}
+            # last_eval = info.get("last_evaluation") or {}
+            # if isinstance(last_eval, dict):
+            #     typical keys to look for
+            #     for k in ("task_score", "score"):
+            #         if k in last_eval:
+            #             try:
+            #                 return float(last_eval[k])
+            #             except Exception:
+            #                 pass
+            #     for k in ("is_success", "task_success", "success", "solved"):
+            #         if k in last_eval:
+            #             return 1.0 if bool(last_eval[k]) else 0.0
 
 def format_task_dataset(task_ids):
     result = []
     for task_id in task_ids: 
-        # Load the appworld environment for the task
+        # Load the appworld environment to get task information
         with AppWorld(
             task_id=task_id,
         ) as world:
-            # prompt = [
-            #     {
-            #         "role": "user",
-            #         "content": world.task.instruction,
-            #     }
-            # ]
             result.append({"question":  world.task.instruction, "answer": f'{world.task.ground_truth.answer}', "task" : task_id})
     return Dataset.from_list(result)
 
