@@ -256,7 +256,7 @@ def main():
         help="Name of model to evaluate",
     )
     parser.add_argument(
-        "--model_tag",
+        "--model-tag",
         "-mt",
         type=str,
     )

@@ -88,6 +88,7 @@ import os
 from verifiers.types import ChatCompletionMessageToolCall, Message, Messages, State
 from jinja2 import Template
 from appworld.common.utils import read_json
+# import Path
 
 
 # --- Environment: tool-only, multi-turn, long-horizon friendly --- #
@@ -112,8 +113,14 @@ class AppWorldEnv(ToolEnv):
         self.predict_tools = False
         self.raise_on_error = raise_on_error
         self.world = None
-        self.demo_messages_file_path =  "/weka/oe-adapt-default/shaktis/general-tool-use/verifiers/environments/appworld_env/demos.json"
 
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.demo_messages_file_path = os.path.join(current_dir, "demos.json")
+
+        # demos_path = Path(__file__).parent / "demos.json"
+        # self.demo_messages_file_path =  "./demos.json"
+
+    
     async def setup_state(self, state: State, **kwargs: Any) -> State:
         task_id = state["task"]
         if not task_id:
@@ -187,6 +194,7 @@ class AppWorldEnv(ToolEnv):
         prompt_too_long = await self.prompt_too_long(state)
         return max_turns_reached or prompt_too_long
 
+    # override from ToolEnv to add 'name' field to JSON result
     async def call_tool(
         self, tool_name: str, tool_args: dict, tool_call_id: str, **kwargs
     ) -> Message:
@@ -208,7 +216,8 @@ class AppWorldEnv(ToolEnv):
                 "name": tool_name,
                 "tool_call_id": tool_call_id,
             }
-        
+    
+    # overrid from ToolEnv to ensure that agent is reminded to provide tool calls every repsonse
     async def env_response(
         self, messages: Messages, state: State, **kwargs
     ) -> tuple[Messages, State]:
@@ -240,15 +249,8 @@ class AppWorldEnv(ToolEnv):
         return tool_messages, state
 
     def _make_rubric(self) -> vf.Rubric:
-        """
-        Rubric composed of:
-          - success_reward: derived from evaluation snapshot (priority)
-          - progress_reward: small credit for successful tool calls that produce evaluation
-          - planning_reward: tiny credit when agent saves a multi-step plan to workflow_memory (encourages planning)
-          - penalty: for tool execution errors
-        """
         def success_reward(**kwargs):
-            return self.world.evaluate().pass_percentage
+            return self.world.evaluate().pass_percentage*0.01
         return vf.Rubric(
             funcs=[success_reward],
             weights=[1.0]
