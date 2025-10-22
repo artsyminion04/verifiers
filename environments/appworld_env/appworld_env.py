@@ -88,6 +88,7 @@ import os
 from verifiers.types import ChatCompletionMessageToolCall, Message, Messages, State
 from jinja2 import Template
 from appworld.common.utils import read_json
+# import Path
 
 
 # --- Environment: tool-only, multi-turn, long-horizon friendly --- #
@@ -100,6 +101,7 @@ class AppWorldEnv(ToolEnv):
                  eval_dataset=None,
                  raise_on_error: bool = False,
                  max_turns = 20,
+                 ground_truth_tools: bool = True,
                  planning_credit_enabled: bool = True,
                  max_plan_length_credit: int = 5,
                  **kwargs):
@@ -109,84 +111,55 @@ class AppWorldEnv(ToolEnv):
         )
 
         self.max_turns = max_turns
-        self.predict_tools = False
+        self.ground_truth_tools = ground_truth_tools
         self.raise_on_error = raise_on_error
         self.world = None
-        self.demo_messages_file_path =  "/weka/oe-adapt-default/shaktis/general-tool-use/verifiers/environments/appworld_env/demos.json"
 
+        # load system prompt json file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.demo_messages_file_path = os.path.join(current_dir, "demos.json")
+    
+    # Run at the beginning of each task to populate system prompt with api tools, env, and user info
     async def setup_state(self, state: State, **kwargs: Any) -> State:
         task_id = state["task"]
         if not task_id:
             raise ValueError("Dataset entries must include an info['task_id'] field")
 
+        # Load either ground truth apis or use predicted apis for task
         world = AppWorld(task_id=task_id, load_ground_truth=True, ground_truth_mode='full')
         self.world = world
         all_tools = world.task.api_docs.function_calling()
-
-        if self.predict_tools:
-            self.oai_tools = all_tools[:128]
-            self.tools = [oai_tool["function"]["name"] for oai_tool in self.oai_tools]
-        else:
-            # use ground truth apis
+        if self.ground_truth_tools:
             self.oai_tools = []
             self.tools = world.task.ground_truth.required_apis
             for doc in all_tools:
                 func_name = doc["function"]["name"].replace('__', '.')
                 if func_name in self.tools:
                     self.oai_tools.append(doc)
+        else:
+            self.oai_tools = all_tools[:128]
+            self.tools = [oai_tool["function"]["name"] for oai_tool in self.oai_tools]
 
         state["info"]["tools"] = self.tools
         state["info"]["oai_tools"] = self.oai_tools
 
+        # Populate system prompt with task specific information 
         dictionary = {"supervisor": world.task.supervisor, "app_descriptions": world.task.app_descriptions, "max_steps": self.max_turns}
         if self.demo_messages_file_path is not None:
             self.demo_messages = read_json(self.demo_messages_file_path.replace("/", os.sep))
         self.demo_messages = str(self.demo_messages)
         prompt = Template(self.system_prompt.lstrip() + self.demo_messages.lstrip()).render(dictionary)
-        
         state["prompt"][0]["content"] = prompt
+
         return state
-        
-        # lm_calls_log_file_path = os.path.join(self.world.output_logs_directory, "lm_calls.jsonl")
-        # tools, _ = self.api_predictor.predict(
-        #     task=world.task, lm_calls_log_file_path=lm_calls_log_file_path
-        # )
-        # self.functions = [
-        #     doc
-        #     for doc in world.task.api_docs.function_calling()
-        #     if doc["function"]["name"] in tools
-        # ]
-       
-        # apps = world.execute("print(apis.api_docs.show_app_descriptions())")
-        # for app_name in json.loads(apps):
-        #     apis = world.execute(f"print(apis.api_docs.show_api_descriptions(app_name='{app_name}'))")
-        #     for api_name in json.loads(apis):
-        #         tool_name = f"{app_name}.{api_name}"
-        #         # tool_doc = f"print(apis.api_docs.show_api_doc(app_name='{app_name}', api_name='{api_name}'))"
-        #         # tool_map[tool_name] = tool_doc
-        #         tools.append(tool_name)
-
-        #     return tools
-        # self.tools = tools
-        # self.oai_tools = [convert_func_doc_to_oai_tool(tool) for tool in self.tools]
-
-        # Mutate prompt in-place so rollout sees the instructions
-        # prompt = state.get("prompt", [])
-        # if isinstance(prompt, list):
-        #     prompt.append(
-        #         {
-        #             "role": "user",
-        #             "content": state["prompt"],
-        #         }
-        #     )
     
     # Override tool env implementation. If an agent doesn't make a tool call remind them instead of ending rollout
     async def is_completed(self, messages: Messages, state: State, **kwargs) -> bool:
-        """When overriding, call self.max_turns_reached(state) to check if turn limit reached."""
         max_turns_reached = await self.max_turns_reached(state)
         prompt_too_long = await self.prompt_too_long(state)
         return max_turns_reached or prompt_too_long
 
+    # Override from ToolEnv to add 'name' field to JSON result
     async def call_tool(
         self, tool_name: str, tool_args: dict, tool_call_id: str, **kwargs
     ) -> Message:
@@ -208,7 +181,8 @@ class AppWorldEnv(ToolEnv):
                 "name": tool_name,
                 "tool_call_id": tool_call_id,
             }
-        
+    
+    # Override from ToolEnv to ensure that agent is reminded to provide tool calls every response
     async def env_response(
         self, messages: Messages, state: State, **kwargs
     ) -> tuple[Messages, State]:
@@ -240,33 +214,12 @@ class AppWorldEnv(ToolEnv):
         return tool_messages, state
 
     def _make_rubric(self) -> vf.Rubric:
-        """
-        Rubric composed of:
-          - success_reward: derived from evaluation snapshot (priority)
-          - progress_reward: small credit for successful tool calls that produce evaluation
-          - planning_reward: tiny credit when agent saves a multi-step plan to workflow_memory (encourages planning)
-          - penalty: for tool execution errors
-        """
         def success_reward(**kwargs):
-            return self.world.evaluate().pass_percentage
+            return self.world.evaluate().pass_percentage*0.01
         return vf.Rubric(
             funcs=[success_reward],
             weights=[1.0]
         )
-    
-    # info = (state or {}).get("info", {}) or {}
-            # last_eval = info.get("last_evaluation") or {}
-            # if isinstance(last_eval, dict):
-            #     typical keys to look for
-            #     for k in ("task_score", "score"):
-            #         if k in last_eval:
-            #             try:
-            #                 return float(last_eval[k])
-            #             except Exception:
-            #                 pass
-            #     for k in ("is_success", "task_success", "success", "solved"):
-            #         if k in last_eval:
-            #             return 1.0 if bool(last_eval[k]) else 0.0
 
 def format_task_dataset(task_ids):
     result = []
@@ -279,7 +232,7 @@ def format_task_dataset(task_ids):
     return Dataset.from_list(result)
 
 
-def load_environment(experiment_name="appworld_test", code_exec = False,  **kwargs) -> AppWorldEnv:
+def load_environment(code_exec = False,  **kwargs) -> AppWorldEnv:
     train_task_ids = load_task_ids("train")
     eval_task_ids = load_task_ids("dev")
 
