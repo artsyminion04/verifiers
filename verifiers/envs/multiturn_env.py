@@ -76,7 +76,7 @@ class MultiTurnEnv(Environment):
             prompt, completion, answer, task, info, example_id
         )
         start_time = time.time()
-        state = await maybe_await(self.setup_state, state, **kwargs) #,prompt
+        state = await maybe_await(self.setup_state, state, client, model, sampling_args, **kwargs) #,prompt
         if self.message_type == "chat":
             assert isinstance(state["prompt"], list)
             assert isinstance(state["completion"], list)

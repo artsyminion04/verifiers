@@ -27,8 +27,10 @@ uv run vf-eval appworld-env
 Configure model and sampling:
 
 ```bash
-uv run vf-eval appworld-env   -m gpt-4.1-mini   -n 20 -r 3 -t 1024 -T 0.7   -a '{"key": "value"}'  # env-specific args as JSON
-uv run vf-eval appworld-env -m "Qwen/Qwen3-4B" -mt "qwen-4b"
+uv run vf-eval appworld-env   -m gpt-4.1-mini   -n 20 -r 3 -t 1024 -T 0.7   -a '{"key": "value"}'  # env-specific args as JSON 
+uv run vf-eval appworld-env -m artsyminion04/Qwen-8B-Appworld-SFT -mt qwen3-appworld-sft -n 20 -r 3 -pt 6237 -ls True -a '{"eval_set": "test_normal"}' --save-dataset
+uv run vf-eval appworld-env -m Qwen/Qwen3-8B -mt qwen3-8b -n 20 -r 3 -pt 6237 -ls True -a '{"eval_set": "test_normal"}' --save-dataset
+uv run vf-eval -m Qwen/Qwen3-8B -mt qwen3-8b --port 6237 
 ```
 
 Notes:

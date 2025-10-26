@@ -12,7 +12,7 @@
 python mason.py \
     --cluster ai2/saturn \
     --workspace ai2/general-tool-use \
-    --image shaktis/verifiers --pure_docker_mode \
+    --image shaktis/verifiers \
     --priority high \
     --budget ai2/oe-adapt \
     --gpus 1 -- python verifiers/scripts/eval.py appworld-env \
@@ -20,17 +20,34 @@ python mason.py \
     --model Qwen/Qwen3-8B \
     --rollouts-per-example 3 \
     --num-examples 20 \
-    --local-serve True
+    --local-serve True \
+    --env-args '{"eval_set": "test_normal"}' \
+    --save-dataset 
 
 # Qwen8B train
-python mason.py \
-    --cluster ai2/saturn \
-    --workspace ai2/general-tool-use \
-    --image shaktis/verifiers --pure_docker_mode \
-    --priority high \
-    --budget ai2/oe-adapt \
-    --gpus 8 -- vf-vllm --model Qwen/Qwen3-8B --data-parallel-size 6 --enforce-eager --disable-log-requests --port 8001 \&\& accelerate launch --num-processes 2 --config-file configs/zero3.yaml examples/grpo/train_appworld.py 
+# python mason.py \
+#     --cluster ai2/saturn \
+#     --workspace ai2/general-tool-use \
+#     --image shaktis/verifiers \
+#     --priority high \
+#     --budget ai2/oe-adapt \
+#     --gpus 2 -- accelerate launch --num-processes 2 --config-file configs/zero3.yaml examples/grpo/train_appworld.py 
 
+# python mason.py \
+#     --cluster ai2/saturn \
+#     --workspace ai2/general-tool-use \
+#     --image shaktis/verifiers \
+#     --priority high \
+#     --budget ai2/oe-adapt \
+#     --gpus 2 -- vf-vllm --model willcb/Qwen3-8B-Wiki-Search-SFT \
+#     --data-parallel-size 6 --enforce-eager --disable-log-requests \&\& accelerate launch --num-processes 2 --config-file configs/zero3.yaml examples/grpo/train_appworld.py 
+
+# CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 vf-vllm --model willcb/Qwen3-8B-Wiki-Search-SFT \
+#     --data-parallel-size 6 --enforce-eager --disable-log-requests
+
+# training:
+# CUDA_VISIBLE_DEVICES=6,7 accelerate launch --num-processes 2 \
+#     --config-file configs/zero3.yaml examples/grpo/train_wiki_search.py
 
 # python mason.py \
 #     --cluster ai2/jupiter-cirrascale-2 \

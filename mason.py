@@ -70,12 +70,12 @@ NFS_CLUSTERS = [
 ]
 
 WEKA_CLUSTERS = [
-    "ai2/jupiter-cirrascale-2",
-    "ai2/saturn-cirrascale",
-    "ai2/titan-cirrascale",
+    "ai2/jupiter",
+    "ai2/saturn",
+    "ai2/titan",
     "ai2/neptune-cirrascale",
     "ai2/ceres-cirrascale",
-    "ai2/triton-cirrascale",
+    "ai2/triton",
     "ai2/rhea-cirrascale",
 ]
 GCP_CLUSTERS = [

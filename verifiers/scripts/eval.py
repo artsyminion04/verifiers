@@ -5,17 +5,14 @@ import logging
 from typing import Dict
 
 from verifiers import setup_logging
-<<<<<<< HEAD
 from verifiers.types import ClientConfig, EvalConfig
 from verifiers.utils.eval_utils import load_endpoints, run_evaluation
-=======
 from verifiers.types import Endpoints
 from verifiers.utils.client_utils import setup_client
 from verifiers.utils.message_utils import messages_to_printable, sanitize_tool_calls
 import subprocess
 import requests
 import signal
->>>>>>> 1419674 (add option to start vllm server as part of eval.py program)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +54,8 @@ def main():
         "--model-tag",
         "-mt",
         type=str,
+        default="gpt-4.1-mini",
+        help="Name of model to evaluate",
     )
     parser.add_argument(
         "--api-key-var",
@@ -180,6 +179,13 @@ def main():
     parser.add_argument(
         "--local-serve", "-ls", default=False,
     )
+    parser.add_argument(
+        "--port",
+        "-pt",
+        type=int,
+        default=6237,
+        help="Port number for client if locally serving model",
+    )
     args = parser.parse_args()
 
     setup_logging("DEBUG" if args.verbose else "INFO")
@@ -228,9 +234,9 @@ def main():
 
     # Add code to locally serve the model first
     if args.local_serve:
-        proc = launch_vllm_server(args.model, port=8001)
+        proc = launch_vllm_server(args.model, port=args.port)
         try:
-            wait_for_server_ready()
+            wait_for_server_ready(port = args.port, model_name=args.model)
         except:
             exit()
 
@@ -278,20 +284,27 @@ def launch_vllm_server(model_name: str, port: int = 8001) -> subprocess.Popen:
     proc = subprocess.Popen(cmd,stdout=log_file)
     return proc
 
-def wait_for_server_ready(host: str = "0.0.0.0", port: int = 8001, timeout: int = 180):
-    url = f"http://{host}:{port}/health"
+import time, requests
+def wait_for_server_ready(host="0.0.0.0", port=8001, model_name=None, timeout=300):
+    url = f"http://{host}:{port}/v1/chat/completions"
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1
+    }
     start = time.time()
+    print(f"Waiting for vLLM ({model_name}) to finish loading...")
     while time.time() - start < timeout:
         try:
-            r = requests.get(url)
+            r = requests.post(url, json=payload, timeout=10)
             if r.status_code == 200:
-                print("[Ready] vLLM server is up!")
+                print(f"[Ready] vLLM model '{model_name}' fully loaded and responsive!")
                 return
-        except:
+        except requests.exceptions.RequestException:
             pass
         print(".", end="", flush=True)
-        time.sleep(2)
-    raise TimeoutError("Timed out waiting for vLLM to start.")
+        time.sleep(5)
+    raise TimeoutError(f"Timed out waiting for model '{model_name}' to become ready.")
 
 
 if __name__ == "__main__":

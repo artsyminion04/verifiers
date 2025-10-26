@@ -106,17 +106,17 @@ ENDPOINTS = {
     },
     "qwen3-4b": {
         "model": "Qwen/Qwen3-4B",
-        "url": "http://0.0.0.0:8001/v1",
+        "url": "http://0.0.0.0:8000/v1",
         "key": "EMPTY",
     },
     "qwen3-8b": {
         "model": "Qwen/Qwen3-8B",
-        "url": "http://0.0.0.0:8001/v1",
+        "url": "http://0.0.0.0:6237/v1",
         "key": "EMPTY",
     },
     "qwen3-appworld-sft": {
-        "model": "artsyminion04/Qwen3-4B-Appworld-SFT-432",
-        "url": "http://0.0.0.0:8080/v1",
+        "model": "artsyminion04/Qwen-8B-Appworld-SFT",
+        "url": "http://0.0.0.0:6237/v1",
         "key": "EMPTY",
     },
     "qwen3-a22b-instruct": {
