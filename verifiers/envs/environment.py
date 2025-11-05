@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -117,7 +118,7 @@ class Environment(ABC):
 
         if self.dataset is None and self.eval_dataset is None:
             raise ValueError("Either dataset or eval_dataset must be provided")
-
+        
         self.env_id = env_id or ""
         self.env_args = env_args or {}
         self.rollouts_per_example = None
@@ -272,11 +273,10 @@ class Environment(ABC):
                         **clean_sampling_args,
                         "modalities": ["text"],
                     }
-
                 if oai_tools:
                     response = await client.chat.completions.create(
                         model=model,
-                        messages=prompt,  # type: ignore
+                        messages=prompt,
                         tools=oai_tools,
                         **clean_sampling_args,
                     )
@@ -368,7 +368,7 @@ class Environment(ABC):
                 sampling_args,
                 **kwargs,
             )
-
+            
     async def run_rollouts(
         self,
         client: AsyncOpenAI,
@@ -498,6 +498,8 @@ class Environment(ABC):
         gen_sampling_args = deepcopy(self.sampling_args)
         if sampling_args is not None:
             gen_sampling_args.update(sampling_args)
+        # Log the resolved sampling args for debugging reproducibility issues
+        self.logger.info(f"Resolved sampling_args for generation: {json.dumps(gen_sampling_args, default=str)}")
 
         # preprocess dataset or GenerateInputs to GenerateOutputs
         results_dict = {}
