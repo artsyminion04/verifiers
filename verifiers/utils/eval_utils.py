@@ -5,6 +5,10 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import cast
+import asyncio
+import subprocess
+import psutil
+import atexit
 
 import numpy as np
 from datasets import Dataset, disable_progress_bar, enable_progress_bar
@@ -19,6 +23,15 @@ from verifiers.utils.path_utils import get_eval_results_path
 
 logger = logging.getLogger(__name__)
 
+def kill_orphaned_appworld_servers():
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            if proc.info["cmdline"] and "appworld.cli" in " ".join(proc.info["cmdline"]):
+                logger.info(f"[CLEANUP] Killing lingering AppWorld process {proc.pid}")
+                proc.kill()
+        except Exception:
+            continue
+atexit.register(kill_orphaned_appworld_servers)
 
 def load_endpoints(endpoints_path: str):
     try:
@@ -82,22 +95,29 @@ def print_results(results: GenerateOutputs, num_samples: int = 1):
     )
     r = results.metadata.rollouts_per_example
     n = len(results.reward) // r
+    # Print per-rollout trial rewards (rounded)
     for i in range(r):
         # rounded to 3 decimal places
         trials = [round(results.reward[(i * n) + j], 3) for j in range(n)]
         out = f"r{i + 1}: {trials}"
         print(out)
-    for k in results.metrics:
-        v = results.metrics[k]
-        print(f"{k}: avg - {sum(v) / len(v):.3f}, std - {np.std(v):.3f}")
-        for i in range(r):
-            # rounded to 3 decimal places
-            trials = [round(v[(i * n) + j], 3) for j in range(n)]
-            out = f"r{i + 1}: {trials}"
-            print(out)
-
+    # Compute final success rate across examples.
+    # Assumption: `results.reward` is a flat list of length n * r where
+    # rewards are 1.0 for a passing task and 0.0 otherwise. We count an
+    # example as successful if any of its rollouts has reward == 1.0.
+    rollout_successes = []
+    for i in range(r):
+        # For this rollout, count how many examples succeeded
+        successes = sum(results.reward[i * n + j] == 1.0 for j in range(n))
+        success_rate = successes / n * 100.0
+        rollout_successes.append(success_rate)
+        print(f"Success rate (r{i + 1}): {successes}/{n} examples successful ({success_rate:.2f}%)")
 
 async def run_evaluation(config: EvalConfig) -> GenerateOutputs:
+
+    # try killing orphaned servers from previous run if needed with a sanity check to not kill the current process
+    kill_orphaned_appworld_servers()
+
     # set up AsyncOpenAI client with high limits to prevent timeouts
     client = setup_client(
         config.client_config,
@@ -115,22 +135,38 @@ async def run_evaluation(config: EvalConfig) -> GenerateOutputs:
     logger.info(
         f"Configuration: num_examples={config.num_examples}, rollouts_per_example={config.rollouts_per_example}, max_concurrent={config.max_concurrent}"
     )
+    
     start_time = time.time()
-    results = await vf_env.evaluate(
-        client=client,
-        model=config.model,
-        sampling_args=config.sampling_args,
-        num_examples=config.num_examples,
-        rollouts_per_example=config.rollouts_per_example,
-        max_concurrent=config.max_concurrent,
-        max_concurrent_generation=config.max_concurrent_generation,
-        max_concurrent_scoring=config.max_concurrent_scoring,
-        interleave_scoring=config.interleave_scoring,
-        results_path=results_path,
-        state_columns=config.state_columns,
-        save_every=config.save_every,
-    )
+    try:
+        results = await vf_env.evaluate(
+            client=client,
+            model=config.model,
+            sampling_args=config.sampling_args,
+            num_examples=config.num_examples,
+            rollouts_per_example=config.rollouts_per_example,
+            max_concurrent=config.max_concurrent,
+            max_concurrent_generation=config.max_concurrent_generation,
+            max_concurrent_scoring=config.max_concurrent_scoring,
+            interleave_scoring=config.interleave_scoring,
+            results_path=results_path,
+            state_columns=config.state_columns,
+            save_every=config.save_every,
+        )
+    except asyncio.CancelledError:
+        logger.warning("Evaluation cancelled; shutting down servers.")
+        await asyncio.shield(asyncio.to_thread(vf_env.shutdown_servers))
+        raise
+    except Exception as e:
+        logger.error(f"Evaluation failed: {e}")
+        raise
+    finally:
+        try:
+            await asyncio.shield(asyncio.to_thread(vf_env.shutdown_servers))
+        except Exception as e:
+            logger.warning(f"Shutdown failed: {e}")
+
     end_time = time.time()
+
     logger.info(f"Evaluation completed in {end_time - start_time:.2f} seconds")
     if config.print_results:
         print_results(results)

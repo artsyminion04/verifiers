@@ -109,12 +109,27 @@ ENDPOINTS = {
         "url": "http://0.0.0.0:8000/v1",
         "key": "EMPTY",
     },
-    "qwen3-8b": {
+    "willcb/Qwen3-8B": {
+        "model": "willcb/Qwen3-8B",
+        "url": "http://0.0.0.0:6237/v1",
+        "key": "EMPTY",
+    },
+    "Qwen/Qwen3-8B": {
         "model": "Qwen/Qwen3-8B",
         "url": "http://0.0.0.0:6237/v1",
         "key": "EMPTY",
     },
-    "qwen3-appworld-sft": {
+    "artsyminion04/Qwen3-8B-Appworld-10k-cb": {
+        "model": "artsyminion04/Qwen3-8B-Appworld-10k-cb",
+        "url": "http://0.0.0.0:6237/v1",
+        "key": "EMPTY",
+    },
+    "artsyminion04/Qwen3-8B-Appworld-10k-prime": {
+        "model": "artsyminion04/Qwen3-8B-Appworld-10k-prime",
+        "url": "http://0.0.0.0:6237/v1",
+        "key": "EMPTY",
+    },
+    "artsyminion04/Qwen-8B-Appworld-SFT": {
         "model": "artsyminion04/Qwen-8B-Appworld-SFT",
         "url": "http://0.0.0.0:6237/v1",
         "key": "EMPTY",

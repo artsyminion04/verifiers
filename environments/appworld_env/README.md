@@ -28,7 +28,7 @@ Configure model and sampling:
 
 ```bash
 uv run vf-eval appworld-env   -m gpt-4.1-mini   -n 20 -r 3 -t 1024 -T 0.7   -a '{"key": "value"}' 
-uv run vf-eval appworld-env -m Qwen/Qwen3-8B -n 20 -r 3 -pt 6237 -ls True -a '{"eval_set": "test_normal"}' --temperature 0.0 --save-results --max-concurrent 1
+uv run vf-eval appworld-env -m Qwen/Qwen3-8B -n 20 -r 3 -pt 6237 -ls True -a '{"eval_set": "dev"}' --temperature 0.0 --save-results --max-concurrent 1
 ```
 
 Notes:

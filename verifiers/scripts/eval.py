@@ -13,9 +13,9 @@ from verifiers.utils.message_utils import messages_to_printable, sanitize_tool_c
 import subprocess
 import requests
 import signal
+import time, requests
 
 logger = logging.getLogger(__name__)
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -118,7 +118,13 @@ def main():
         help="Maximum number of tokens to generate (unset to use model default)",
     )
     parser.add_argument(
-        "--temperature", "-T", type=float, default=None, help="Temperature for sampling"
+        "--rollout-timeout",
+        type=float,
+        default=None,
+        help="Per-rollout timeout in seconds. If a rollout takes longer it will be cancelled and marked failed.",
+    )
+    parser.add_argument(
+        "--temperature", "-T", type=float, default=0.0, help="Temperature for sampling"
     )
     parser.add_argument(
         "--sampling-args",
@@ -215,6 +221,8 @@ def main():
     if args.temperature is not None and "temperature" not in merged_sampling_args:
         merged_sampling_args["temperature"] = args.temperature
 
+    merged_sampling_args["top_p"] = 1.0
+
     # Build headers from repeated --header flags
     merged_headers: Dict[str, str] = {}
     for h in args.header or []:
@@ -284,7 +292,6 @@ def launch_vllm_server(model_name: str, port: int = 8001) -> subprocess.Popen:
     proc = subprocess.Popen(cmd,stdout=log_file)
     return proc
 
-import time, requests
 def wait_for_server_ready(host="0.0.0.0", port=8001, model_name=None, timeout=300):
     url = f"http://{host}:{port}/v1/chat/completions"
     payload = {
